@@ -69,3 +69,13 @@ def initial_condition(theta_1, theta_2, t, model_params, init_params):
         d_theta_2 - init_params.d_theta_1,
     ],
                dim=1)
+
+
+def angle_to_xy(theta_1, theta_2, l1, l2):
+    x_1 = l1*sin(theta_1)
+    y_1 = -l1*cos(theta_1)
+
+    x_2 = l1*sin(theta_1) + l2*sin(theta_2)
+    y_2 = -l1*cos(theta_1) - l2*cos(theta_2)
+
+    return cat([x_1, y_1], dim=1), cat([x_2, y_2], dim=1)
