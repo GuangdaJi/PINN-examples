@@ -33,5 +33,11 @@ class Net(nn.Module):
             nn.Linear(in_features=width, out_features=output_dim, bias=True)
         )
 
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                # the weight have already been kaiming-uniform initialized according to pytorch's source code
+                # nn.init.xavier_normal_(m.weight)
+                nn.init.constant_(m.bias, 0)
+
     def forward(self, x):
         return self.features(x)
