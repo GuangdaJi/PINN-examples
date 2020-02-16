@@ -114,7 +114,7 @@ def RK4_solve(
     real_params=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 10.0],
     init_cond=[np.pi/2, -np.pi/2, 0.0, 0.0],
     time_step=1e-2,
-    precision=1e-5
+    precision=1e-4
 ):
     model_params = real_params_to_eff_params(real_params)
 
