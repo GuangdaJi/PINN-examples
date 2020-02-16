@@ -154,8 +154,29 @@ def PINN_show_grid(
     pd.DataFrame(txu).to_csv('./result/txu_PINN.csv', index=False)
 
 
+def L2_difference():
+
+    # this funcion samples randomly
+    device = torch.device('cuda:0')
+    PINN = torch.load('./result/PINN.pth', map_location=device)
+
+    data = pd.read_csv('./result/txu_NUMERICAL.csv').values
+
+    t_f = torch.tensor(data[:, 0].reshape(-1, 1), dtype=torch.float, device=device)
+    x_f = torch.tensor(data[:, 1].reshape(-1, 1), dtype=torch.float, device=device)
+    u_n = torch.tensor(data[:, 2].reshape(-1, 1), dtype=torch.float, device=device)
+
+    with torch.no_grad():
+        u_f = PINN(torch.cat([x_f, t_f], dim=1))
+
+    return F.mse_loss(u_n, u_f).item()
+
+
 if __name__ == "__main__":
 
     # PINN_train()
     # PINN_show()
-    PINN_show_grid()
+    # PINN_show_grid()
+    diff = L2_difference()
+    print(diff)
+    # L2 loss is 6.9278192071919875e-09
