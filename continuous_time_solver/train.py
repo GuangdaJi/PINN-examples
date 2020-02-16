@@ -1,5 +1,5 @@
-import model
-import net
+from model import d, EoM, real_params_to_eff_params, angle_to_txy
+from net import Net
 import numpy as np
 import pandas as pd
 import torch
@@ -7,98 +7,160 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 
-def train(
+def PINN_train(
     t_start=0.0,
-    t_end=10.0,
-    m1=1.0,
-    m2=1.0,
-    l1=1.0,
-    l2=1.0,
-    lc1=1.0,
-    lc2=1.0,
-    Ic1=0.0,
-    Ic2=0.0,
-    g=10.0,
-    theta_10=np.pi/2,
-    d_theta_10=0.0001,
-    theta_20=np.pi/2,
-    d_theta_20=0.0001
+    t_end=5.0,
+    real_params=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 10.0],
+    init_cond=[np.pi/2, -np.pi/2, 0.0, 0.0],
+    is_load=False,
+    epoch=50000,
+    batch_size=5000,
+    EoM_panelty=1.0,
+    IC_panelty=10.0,
+    lr=0.001
 ):
     device = torch.device('cuda:0')
-    model_params = model.real_params_to_eff_params(m1, m2, l1, l2, lc1, lc2, Ic1, Ic2, g)
-    init_params = model.init_parameters(theta_10, d_theta_10, theta_20, d_theta_20)
+    model_params = real_params_to_eff_params(real_params)
 
-    epoch = 10000
-    batch_size = 10000
+    initial_condition = torch.tensor([init_cond]).to(device)
 
-    PINN = net.Net(1, 2).to(device)
+    min_loss = 100.0
 
-    optimizer = optim.Adam(PINN.parameters())
+    if not is_load:
+        PINN = Net(1, 4).to(device)
+    else:
+        PINN = torch.load('PINN.pth', map_location=device)
+
+    optimizer = optim.Adam(PINN.parameters(), lr=lr)
+    scheducler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=5000, verbose=True, threshold=1e-3
+    )
 
     for i in range(epoch):
 
-        t = t_start + (t_end-t_start)*torch.rand(
-            size=(batch_size, 1), dtype=torch.float, device=device, requires_grad=True
+        t = (t_start+t_end)/2 + 1.1*(t_end-t_start)*(
+            torch.rand(size=(batch_size, 1), dtype=torch.float, device=device, requires_grad=True) -
+            0.5
         )
-        t_init = torch.tensor([[t_start]], dtype=torch.float, device=device, requires_grad=True)
+
+        optimizer.zero_grad()
 
         data = PINN(t)
 
-        theta_1 = data[:, 0:1]
-        theta_2 = data[:, 1:2]
+        # left hand side of EoM
+        left = torch.cat([
+            d(data[:, 0:1], t),
+            d(data[:, 1:2], t),
+            d(data[:, 2:3], t),
+            d(data[:, 3:4], t)
+        ],
+                         dim=1)
 
-        EoM = model.equation_of_motion(theta_1, theta_2, t, model_params)
+        # right hand side of EoM
+        right = EoM(data, model_params)
 
-        data_init = PINN(t_init)
+        # equation of motion mse
+        mse_EoM = F.mse_loss(left, right)
 
-        theta_10 = data_init[:, 0:1]
-        theta_20 = data_init[:, 1:2]
+        t_init = torch.tensor([[t_start]], dtype=torch.float, device=device, requires_grad=True)
 
-        IC = model.initial_condition(theta_10, theta_20, t_init, model_params, init_params)
+        # initial condition mse
+        mse_IC = F.mse_loss(PINN(t_init), initial_condition)
 
-        mse_eom = F.mse_loss(EoM, torch.zeros_like(EoM))
-
-        mse_ic = F.mse_loss(IC, torch.zeros_like(IC))
-
-        loss = mse_eom + mse_ic
+        # the initial condition is harder to converge.
+        loss = EoM_panelty*mse_EoM + IC_panelty*mse_IC
 
         loss.backward()
         optimizer.step()
-        optimizer.zero_grad()
+        scheducler.step(loss)
 
-        if i % 50 == 0:
+        if i % 100 == 0:
             print(
-                'epoch:{:04d}, EoM: {:.08e}, IC: {:.08e}, loss: {:.08e}'.format(
-                    i, mse_eom.item(), mse_ic.item(), loss.item()
+                'epoch:{:05d}, EoM: {:.08e}, IC: {:.08e}, loss: {:.08e}'.format(
+                    i, mse_EoM.item(), mse_IC.item(), loss.item()
                 )
             )
 
-    time_step = 1e-3
+            if min_loss > loss.item():
+                min_loss = loss.item()
+                torch.save(PINN, 'PINN.pth')
+
+
+def PINN_show(
+    t_start=0.0,
+    t_end=5.0,
+    real_params=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 10.0],
+    time_step=1e-2
+):
+
+    device = torch.device('cuda:0')
+    PINN = torch.load('PINN.pth', map_location=device)
 
     t = torch.linspace(
-        t_start,
-        t_end,
-        int((t_end-t_start)/time_step),
-        dtype=torch.float,
-        device=device,
-        requires_grad=True
-    )
+        t_start, t_end, int((t_end-t_start)/time_step + 1), dtype=torch.float, device=device
+    ).reshape(-1, 1)
 
     data = PINN(t)
 
-    theta_1 = data[:, 0:1]
-    theta_2 = data[:, 1:2]
+    txy_1, txy_2 = angle_to_txy(data, t, real_params[2], real_params[3])
 
-    xy_1, xy_2 = model.angle_to_xy(theta_1, theta_2, l1, l2)
+    pd.DataFrame(txy_1).to_csv('txy_1_PINN.csv', index=False)
+    pd.DataFrame(txy_2).to_csv('txy_2_PINN.csv', index=False)
 
-    txy_1 = torch.cat([t, xy_1], dim=1).detach().cpu().numpy()
-    txy_2 = torch.cat([t, xy_2], dim=1).detach().cpu().numpy()
 
-    pd.DataFrame(txy_1).to_csv('txy_1.csv', index=False)
-    pd.DataFrame(txy_2).to_csv('txy_2.csv', index=False)
+def RK4_solve(
+    t_start=0.0,
+    t_end=5.0,
+    real_params=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 10.0],
+    init_cond=[np.pi/2, -np.pi/2, 0.0, 0.0],
+    time_step=1e-2,
+    precision=1e-5
+):
+    model_params = real_params_to_eff_params(real_params)
 
-    torch.save(PINN, 'PINN.pth')
+    y = torch.tensor([init_cond])
+    t = torch.tensor([[t_start]])
+
+    txy_1, txy_2 = angle_to_txy(y, t, real_params[2], real_params[3])
+
+    with open('txy_1_RK4.csv', 'w') as f:
+        f.write('t,x,y\n')
+        f.write('{:.10f},{:.10f},{:.10f}\n'.format(txy_1[0, 0], txy_1[0, 1], txy_1[0, 2]))
+
+    with open('txy_2_RK4.csv', 'w') as f:
+        f.write('t,x,y\n')
+        f.write('{:.10f},{:.10f},{:.10f}\n'.format(txy_2[0, 0], txy_2[0, 1], txy_2[0, 2]))
+
+    step_per_record = int(time_step/precision)
+
+    n = 0
+    while t <= t_end + 1e-8:
+
+        with torch.no_grad():
+            k1 = precision*EoM(y, model_params)
+            k2 = precision*EoM(y + 0.5*k1, model_params)
+            k3 = precision*EoM(y + 0.5*k2, model_params)
+            k4 = precision*EoM(y + k3, model_params)
+            y = y + k1/6 + k2/3 + k3/3 + k4/6
+            t = t + precision
+
+        if n % step_per_record == 0:
+
+            print(t.item())
+
+            txy_1, txy_2 = angle_to_txy(y, t, real_params[2], real_params[3])
+
+            with open('txy_1_RK4.csv', 'a') as f:
+                f.write('{:.10f},{:.10f},{:.10f}\n'.format(txy_1[0, 0], txy_1[0, 1], txy_1[0, 2]))
+
+            with open('txy_2_RK4.csv', 'a') as f:
+                f.write('{:.10f},{:.10f},{:.10f}\n'.format(txy_2[0, 0], txy_2[0, 1], txy_2[0, 2]))
+
+        n = n + 1
 
 
 if __name__ == "__main__":
-    train()
+
+    # PINN_train()
+    # PINN_show()
+    RK4_solve()
