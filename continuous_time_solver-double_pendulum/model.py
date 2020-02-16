@@ -7,8 +7,9 @@ def d(f, x):
     return grad(f, x, grad_outputs=ones_like(f), create_graph=True, only_inputs=True)[0]
 
 
-def EoM(data, model_params):
+def EoM_right(data, model_params):
 
+    # calculate the right hand side of equation of motion
     a, b, c, d, e = model_params
 
     a1, a2, da1, da2 = data[:, 0:1], data[:, 1:2], data[:, 2:3], data[:, 3:4]

@@ -1,4 +1,4 @@
-from model import d, EoM, real_params_to_eff_params, angle_to_txy
+from model import d, EoM_right, real_params_to_eff_params, angle_to_txy
 from net import Net
 import numpy as np
 import pandas as pd
@@ -13,9 +13,10 @@ def PINN_train(
     real_params=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 10.0],
     init_cond=[np.pi/2, -np.pi/2, 0.0, 0.0],
     is_load=False,
-    epoch=50000,
+    epoch=100000,
     batch_size=5000,
     EoM_panelty=1.0,
+    # dEoM_panelty=0.1,
     IC_panelty=10.0,
     lr=0.001
 ):
@@ -47,20 +48,26 @@ def PINN_train(
 
         data = PINN(t)
 
-        # left hand side of EoM
-        left = torch.cat([
+        EoM = torch.cat([
             d(data[:, 0:1], t),
             d(data[:, 1:2], t),
             d(data[:, 2:3], t),
             d(data[:, 3:4], t)
         ],
-                         dim=1)
-
-        # right hand side of EoM
-        right = EoM(data, model_params)
+                        dim=1) - EoM_right(data, model_params)
 
         # equation of motion mse
-        mse_EoM = F.mse_loss(left, right)
+        mse_EoM = F.mse_loss(EoM, torch.zeros_like(EoM))
+
+        # dEoM = torch.cat([
+        #     d(EoM[:, 0:1], t),
+        #     d(EoM[:, 1:2], t),
+        #     d(EoM[:, 2:3], t),
+        #     d(EoM[:, 3:4], t)
+        # ],
+        #                  dim=1)
+
+        # mse_dEoM = F.mse_loss(dEoM, torch.zeros_like(dEoM))
 
         t_init = torch.tensor([[t_start]], dtype=torch.float, device=device, requires_grad=True)
 
@@ -69,10 +76,7 @@ def PINN_train(
 
         # the initial condition is harder to converge.
         loss = EoM_panelty*mse_EoM + IC_panelty*mse_IC
-
-        loss.backward()
-        optimizer.step()
-        scheducler.step(loss)
+        # loss = EoM_panelty*mse_EoM + dEoM_panelty*mse_dEoM + IC_panelty*mse_IC
 
         if i % 100 == 0:
             print(
@@ -81,9 +85,15 @@ def PINN_train(
                 )
             )
 
+            # print(mse_dEoM.item())
+
             if min_loss > loss.item():
                 min_loss = loss.item()
                 torch.save(PINN, 'PINN.pth')
+
+        loss.backward()
+        optimizer.step()
+        scheducler.step(loss)
 
 
 def PINN_show(
@@ -114,12 +124,18 @@ def RK4_solve(
     real_params=[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 10.0],
     init_cond=[np.pi/2, -np.pi/2, 0.0, 0.0],
     time_step=1e-2,
-    precision=1e-4
+    precision=1e-5
 ):
     model_params = real_params_to_eff_params(real_params)
 
-    y = torch.tensor([init_cond])
     t = torch.tensor([[t_start]])
+
+    # Since this system is sensitive to inital condition(IC), I modify the IC to what PINN learns.
+    PINN = torch.load('PINN.pth', map_location='cpu')
+    y = PINN(t)
+    # y = torch.tensor([init_cond])
+
+    print(y.detach().cpu().numpy())
 
     txy_1, txy_2 = angle_to_txy(y, t, real_params[2], real_params[3])
 
@@ -137,10 +153,10 @@ def RK4_solve(
     while t <= t_end + 1e-8:
 
         with torch.no_grad():
-            k1 = precision*EoM(y, model_params)
-            k2 = precision*EoM(y + 0.5*k1, model_params)
-            k3 = precision*EoM(y + 0.5*k2, model_params)
-            k4 = precision*EoM(y + k3, model_params)
+            k1 = precision*EoM_right(y, model_params)
+            k2 = precision*EoM_right(y + 0.5*k1, model_params)
+            k3 = precision*EoM_right(y + 0.5*k2, model_params)
+            k4 = precision*EoM_right(y + k3, model_params)
             y = y + k1/6 + k2/3 + k3/3 + k4/6
             t = t + precision
 
