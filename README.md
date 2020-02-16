@@ -34,9 +34,15 @@ where D is the differential operator. The spatial and temperal step is both 1e-5
 
 ## Results
 
-The PINN produce good enough
+The PINN solves the PDE well enough, the mean L2 loss w.r.t the numerical solution is 7e-09. The following figure shows how good it fits: The blue surface is PINN's solution and the orange surface is numerical solution.
 
 ![avatar](figure/3D.png)
+
+The following two figures are the heat maps of two method. The 
+
+![PINN](figure/PINN.png "PINN")
+
+![Numerical](figure/numerical.png "Numerical")
 
 ## Failure Examples
 
