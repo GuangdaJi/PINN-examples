@@ -1,6 +1,6 @@
 
 # PINN-example
-This repo is a PyTorch realization of physics informed nerual network([PINN]([链接网址](https://github.com/maziarraissi/PINNs) "physics informed neural networks")). I only did the first part of the original paper, that is, "continuous time data-driven solutions". The successful example is in "continuous_time_solver-heat_transfer" folder.
+This repo is a PyTorch realization of physics informed nerual network([PINN](https://github.com/maziarraissi/PINNs "physics informed neural networks")). I only did the first part of the original paper, that is, "continuous time data-driven solutions". The successful example is in "continuous_time_solver-heat_transfer" folder.
 
 
 ## Problem
@@ -38,13 +38,26 @@ The PINN solves the PDE well enough, the mean L2 loss w.r.t the numerical soluti
 
 ![avatar](figure/3D.png)
 
-The following two figures are the heat maps of two method. The 
+The following two figures are the heat maps of two method. The first is PINN's solution, and the second is numerical solution.
 
 ![PINN](figure/PINN.png "PINN")
 
 ![Numerical](figure/numerical.png "Numerical")
 
 ## Failure Examples
+
+Before this successful examples, I have also tried with four failed examples. Here are their discriptions and my analysis.
+
+- Double pendulum system solved with Lagrangian equation.
+- Double pendulum system solved with Newton equation.
+- Centeral gravity force system solved with Newton equation, in xy axis.
+- Heat transfer system with discontinuous initial temperature.
+
+All four faied examples cannot be optimized well. The minimum loss of each kind is at least 1e-3. 
+
+For the first two examples, at first glance it may be caused by the chaotic nature of the system, but after I solve the system with RK4 method, the deviation starts at very begining, and the same case happened to the 3rd example. Now I think PINNs are not very suitable for ODEs, for (1)the initial condition loss is not strong enough to regularize the curve, and (2) f(t) in typical ODEs changes much more than in u(x,t) changes in typical PDEs (although the overall shape for PDEs also looks a lot different from beginning), the accumulated error may be much bigger than numerical solution.
+
+The 4th failed examples leads me to the success examples. It suggests my designed structure of PINN does not favor steep function change.
 
 
 
