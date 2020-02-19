@@ -57,6 +57,8 @@ All four faied examples cannot be optimized well. The minimum loss of each kind 
 
 For the first two examples, at first glance it may be caused by the chaotic nature of the system, but after I solve the system with RK4 method, the deviation starts at very begining, and the same case happened to the 3rd example. Now I think PINNs are not very suitable for ODEs, for (1)the initial condition loss is not strong enough to regularize the curve, and (2) f(t) in typical ODEs changes much more than in u(x,t) changes in typical PDEs (although the overall shape for PDEs also looks a lot different from beginning), the accumulated error may be much bigger than numerical solution.
 
+I also retrain the PINN with restrain on the total energy to be unchange during the whole time ('first_integral' folder), and the result turns out to be good. Then I start to think about is it possible to use NN to find all independent first integral for an ODE system, or, with more restriction, a hamiltonian system, but currently I have no surprising results.
+
 The 4th failed examples leads me to the success examples. It suggests my designed structure of PINN does not favor steep function change.
 
 
